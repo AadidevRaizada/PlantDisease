@@ -1,5 +1,9 @@
 # Training the leaf model
 
+**Easiest: Google Colab (free GPU).** Open [colab_train.ipynb](https://colab.research.google.com/github/AadidevRaizada/PlantDisease/blob/main/training/colab_train.ipynb), pick *Runtime → T4 GPU*, *Run all*, then unzip the downloaded `plant_doctor_model.zip` into `app/public/`.
+
+## Running locally
+
 Produces `app/public/models/model.onnx`, `labels.json`, `refs.json` and the reference thumbnails in `app/public/refs/`.
 Labels are `<crop>___<condition>` and must match `app/src/data/crops.ts`.
 
@@ -11,7 +15,8 @@ uv venv -p 3.11 .venv
 uv pip install -p .venv torch torchvision --index-url https://download.pytorch.org/whl/cpu
 uv pip install -p .venv timm onnx pillow tqdm
 
-.venv/Scripts/python prepare.py --per-class 300   # downloads only the images it needs
+sh download.sh                                     # ~565 MB of raw data
+.venv/Scripts/python prepare.py --per-class 400
 .venv/Scripts/python train.py --epochs 10
 .venv/Scripts/python export.py
 ```
@@ -22,13 +27,12 @@ uv pip install -p .venv timm onnx pillow tqdm
 |---|---|---|
 | Sugarcane | healthy, red rot, rust, mosaic, yellow leaf | `YaswanthReddy23/Sugarcane_leaf` |
 | Cotton | healthy, bacterial blight, alternaria, fusarium wilt, verticillium wilt | `Project-AgML/cotton_leaf_disease_classification` |
-| Soybean | healthy, rust, bacterial blight, frogeye | `anandvermagmailcom/soybean-leaf-diseases` (+ PlantVillage / PlantDoc healthy) |
-| Rice | healthy, blast, bacterial leaf blight, brown spot, tungro | `Project-AgML/rice_leaf_disease_classification_india`, `Project-AgML/rice_leaf_disease_classification` |
-| Tomato | healthy, early blight, late blight, leaf curl, septoria, bacterial spot, mosaic, leaf mould | PlantDoc field photos (`Project-AgML/plant_doc_classification`) + PlantVillage (`BrandonFors/Plant-Diseases-PlantVillage-Dataset`) |
-| Other | leaves of unsupported plants | PlantVillage + PlantDoc (apple, grape, corn, potato, …) |
+| Soybean | healthy, rust, bacterial blight, frogeye | `anandvermagmailcom/soybean-leaf-diseases` (+ PlantVillage healthy) |
+| Rice | healthy, blast, bacterial leaf blight, brown spot, tungro | `sharmin3/Rice-Leaf-Disease` |
+| Tomato | healthy, early blight, late blight, leaf curl, septoria, bacterial spot, mosaic, leaf mould | PlantVillage (`BrandonFors/Plant-Diseases-PlantVillage-Dataset`, test split) |
+| Other | leaves of unsupported plants | PlantVillage (apple, grape, corn, potato, …) |
 
-`prepare.py` uses the datasets-server `/filter` API to fetch a fixed number of images per label, so a slow
-connection only downloads what is needed. Check each dataset's licence before commercial use.
+Check each dataset's licence before commercial use.
 
 ## Model
 MobileNetV3-Large (ImageNet-pretrained, `timm`) fine-tuned at 224 px with strong augmentation and label smoothing.

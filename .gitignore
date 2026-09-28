@@ -10,3 +10,4 @@ training/runs/
 *.pt
 *.pth
 *.tsbuildinfo
+training/*.log

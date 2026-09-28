@@ -304,7 +304,7 @@ export const STAGES: { at: number; name: Text; say: Text }[] = [
   { at: 0, name: { en: 'Seed', mr: 'बी' }, say: { en: 'The seed is in the soil.', mr: 'बी मातीत पेरले आहे.' } },
   { at: 0.06, name: { en: 'Sprout', mr: 'अंकुर' }, say: { en: 'A tiny sprout! 🌱', mr: 'छोटासा अंकुर आला! 🌱' } },
   { at: 0.25, name: { en: 'Young plant', mr: 'रोप' }, say: { en: 'Growing strong, new leaves every day.', mr: 'रोप छान वाढत आहे, रोज नवी पाने.' } },
-  { at: 0.5, name: { en: 'Growing', mr: 'वाढ' }, say: { en: 'Half way there! Keep an eye on the leaves.', mr: 'अर्धा प्रवास झाला! पानांवर लक्ष ठेवा.' } },
+  { at: 0.5, name: { en: 'Growing', mr: 'जोमदार वाढ' }, say: { en: 'Half way there! Keep an eye on the leaves.', mr: 'अर्धा प्रवास झाला! पानांवर लक्ष ठेवा.' } },
   { at: 0.72, name: { en: 'Flowering', mr: 'फुलोरा' }, say: { en: 'Flowers! The crop is forming. 🌼', mr: 'फुले आली! पीक तयार होत आहे. 🌼' } },
   { at: 0.92, name: { en: 'Almost ready', mr: 'काढणीला तयार' }, say: { en: 'Nearly harvest time!', mr: 'काढणी जवळ आली!' } },
 ];

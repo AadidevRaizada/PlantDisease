@@ -1,32 +1,43 @@
-"""Build a balanced, resized training set at data/images/<class_id>/*.jpg.
-
-Instead of downloading whole datasets, this asks the Hugging Face
-datasets-server for rows of one label at a time and downloads only the images
-it needs, so it works on slow connections. Re-running resumes where it stopped.
+"""Build a balanced, resized training set at data/images/<class_id>/*.jpg
+from the raw dataset files in data/raw/ (fetch them with download.sh).
 
 Class ids must match app/src/data/crops.ts.
 """
 
 import argparse
 import io
-import json
 import random
-import time
-import urllib.parse
-import urllib.request
+import re
+import shutil
+import zipfile
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pyarrow.parquet as pq
 from PIL import Image
 
 ROOT = Path(__file__).parent
+RAW = ROOT / "data" / "raw"
 OUT = ROOT / "data" / "images"
-API = "https://datasets-server.huggingface.co"
 SIZE = 256  # stored short side; training crops to 224
 OTHER = "other___unsupported"
 
-TOMATO = {
+PLANTVILLAGE_NAMES = [
+    "Apple___Apple_scab", "Apple___Black_rot", "Apple___Cedar_apple_rust", "Apple___healthy", "Blueberry___healthy",
+    "Cherry_(including_sour)___Powdery_mildew", "Cherry_(including_sour)___healthy",
+    "Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot", "Corn_(maize)___Common_rust_",
+    "Corn_(maize)___Northern_Leaf_Blight", "Corn_(maize)___healthy", "Grape___Black_rot",
+    "Grape___Esca_(Black_Measles)", "Grape___Leaf_blight_(Isariopsis_Leaf_Spot)", "Grape___healthy",
+    "Orange___Haunglongbing_(Citrus_greening)", "Peach___Bacterial_spot", "Peach___healthy",
+    "Pepper,_bell___Bacterial_spot", "Pepper,_bell___healthy", "Potato___Early_blight", "Potato___Late_blight",
+    "Potato___healthy", "Raspberry___healthy", "Soybean___healthy", "Squash___Powdery_mildew",
+    "Strawberry___Leaf_scorch", "Strawberry___healthy", "Tomato___Bacterial_spot", "Tomato___Early_blight",
+    "Tomato___Late_blight", "Tomato___Leaf_Mold", "Tomato___Septoria_leaf_spot",
+    "Tomato___Spider_mites Two-spotted_spider_mite", "Tomato___Target_Spot",
+    "Tomato___Tomato_Yellow_Leaf_Curl_Virus", "Tomato___Tomato_mosaic_virus", "Tomato___healthy",
+]
+
+PV_MAP = {
     "Tomato___healthy": "tomato___healthy",
     "Tomato___Early_blight": "tomato___early_blight",
     "Tomato___Late_blight": "tomato___late_blight",
@@ -38,158 +49,102 @@ TOMATO = {
     "Soybean___healthy": "soybean___healthy",
 }
 
-PLANTDOC = {
-    "Tomato leaf": "tomato___healthy",
-    "Tomato Early blight leaf": "tomato___early_blight",
-    "Tomato leaf late blight": "tomato___late_blight",
-    "Tomato leaf yellow virus": "tomato___leaf_curl",
-    "Tomato Septoria leaf spot": "tomato___septoria_leaf_spot",
-    "Tomato leaf bacterial spot": "tomato___bacterial_spot",
-    "Tomato leaf mosaic virus": "tomato___mosaic_virus",
-    "Tomato mold leaf": "tomato___leaf_mold",
-    "Soyabean leaf": "soybean___healthy",
-}
 
-# (dataset, config, split, {source label: class id}, "field" photos?)
-# Field photos are taken first so lab photos never crowd them out.
-SOURCES = [
-    ("Project-AgML/plant_doc_classification", "default", "train", PLANTDOC, True),
-    ("YaswanthReddy23/Sugarcane_leaf", "default", "train", {
+def pv_class(name: str) -> str | None:
+    if name in PV_MAP:
+        return PV_MAP[name]
+    if name.startswith("Tomato"):
+        return None  # tomato conditions we don't cover (spider mites, target spot)
+    return OTHER
+
+
+# parquet file -> (label names, label -> class id)
+PARQUETS = {
+    "sugarcane.parquet": (["Healthy", "Mosaic", "RedRot", "Rust", "Yellow"], {
         "Healthy": "sugarcane___healthy", "RedRot": "sugarcane___red_rot", "Rust": "sugarcane___rust",
-        "Mosaic": "sugarcane___mosaic", "Yellow": "sugarcane___yellow_leaf"}, True),
-    ("Project-AgML/cotton_leaf_disease_classification", "raw", "train", {
+        "Mosaic": "sugarcane___mosaic", "Yellow": "sugarcane___yellow_leaf"}.get),
+    "cotton.parquet": (["Alternaria_Leaf", "Bacterial_Blight", "Fusarium_Wilt", "Healthy_Leaf", "Verticillium_Wilt"], {
         "Healthy_Leaf": "cotton___healthy", "Bacterial_Blight": "cotton___bacterial_blight",
         "Alternaria_Leaf": "cotton___alternaria_leaf_spot", "Fusarium_Wilt": "cotton___fusarium_wilt",
-        "Verticillium_Wilt": "cotton___verticillium_wilt"}, True),
-    ("anandvermagmailcom/soybean-leaf-diseases", "default", "train", {
+        "Verticillium_Wilt": "cotton___verticillium_wilt"}.get),
+    "soybean.parquet": (["Bacterial_blight", "Frogeye", "Healthy", "Soyabean_rust"], {
         "Healthy": "soybean___healthy", "Soyabean_rust": "soybean___rust",
-        "Bacterial_blight": "soybean___bacterial_blight", "Frogeye": "soybean___frogeye_leaf_spot"}, True),
-    ("Project-AgML/rice_leaf_disease_classification_india", "default", "train", {
-        "Bacterialblight": "rice___bacterial_leaf_blight", "Blast": "rice___blast",
-        "Brownspot": "rice___brown_spot", "Tungro": "rice___tungro"}, True),
-    ("Project-AgML/rice_leaf_disease_classification", "default", "train", {
-        "Healthy_Rice_Leaf": "rice___healthy", "Bacterial_Leaf_Blight": "rice___bacterial_leaf_blight",
-        "Leaf_Blast": "rice___blast", "Brown_Spot": "rice___brown_spot"}, True),
-    ("BrandonFors/Plant-Diseases-PlantVillage-Dataset", "default", "train", TOMATO, False),
-]
-# PlantVillage / PlantDoc labels of other plants become the "not supported" class.
-OTHER_SOURCES = [
-    ("BrandonFors/Plant-Diseases-PlantVillage-Dataset", "default", "train", False),
-    ("Project-AgML/plant_doc_classification", "default", "train", True),
-]
+        "Bacterial_blight": "soybean___bacterial_blight", "Frogeye": "soybean___frogeye_leaf_spot"}.get),
+    "plantvillage.parquet": (PLANTVILLAGE_NAMES, pv_class),
+}
+
+RICE_FOLDERS = {
+    "bacterialblight": "rice___bacterial_leaf_blight", "blast": "rice___blast", "brownspot": "rice___brown_spot",
+    "healthy": "rice___healthy", "tungro": "rice___tungro",
+}
 
 
-def get_json(url: str, tries: int = 5):
-    for i in range(tries):
-        try:
-            with urllib.request.urlopen(url, timeout=60) as r:
-                return json.load(r)
-        except Exception as e:  # rate limits / transient errors
-            if i == tries - 1:
-                raise
-            print(f"  retry ({e})")
-            time.sleep(3 * (i + 1))
-
-
-def label_names(ds: str, config: str) -> list[str]:
-    info = get_json(f"{API}/info?dataset={urllib.parse.quote(ds)}")
-    return info["dataset_info"][config]["features"]["label"]["names"]
-
-
-def rows_for_label(ds: str, config: str, split: str, label: int, want: int) -> list[str]:
-    """Image URLs for up to `want` rows with this label, spread across the label."""
-    where = urllib.parse.quote('"label"=' + str(label))
-    q = lambda off, n: (
-        f"{API}/filter?dataset={urllib.parse.quote(ds)}&config={config}&split={split}"
-        f"&where={where}&offset={off}&length={n}"
-    )
-    first = get_json(q(0, 1))
-    total = first.get("num_rows_total", 0)
-    if not total:
-        return []
-    pages = list(range(0, total, 100))
-    random.shuffle(pages)
-    urls: list[str] = []
-    for off in pages:
-        if len(urls) >= want:
-            break
-        page = get_json(q(off, 100))
-        urls += [r["row"]["image"]["src"] for r in page["rows"]]
-    random.shuffle(urls)
-    return urls[:want]
-
-
-def fetch(url: str, dest: Path) -> bool:
-    if dest.exists():
-        return True
-    for i in range(3):
-        try:
-            with urllib.request.urlopen(url, timeout=90) as r:
-                im = Image.open(io.BytesIO(r.read())).convert("RGB")
-            w, h = im.size
-            s = SIZE / min(w, h)
-            if s < 1:
-                im = im.resize((round(w * s), round(h * s)), Image.BICUBIC)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            im.save(dest, "JPEG", quality=88)
-            return True
-        except Exception:
-            time.sleep(2 * (i + 1))
-    return False
+def save(data: bytes, dest: Path) -> bool:
+    try:
+        im = Image.open(io.BytesIO(data)).convert("RGB")
+    except Exception:
+        return False
+    w, h = im.size
+    s = SIZE / min(w, h)
+    if s < 1:
+        im = im.resize((round(w * s), round(h * s)), Image.BICUBIC)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    im.save(dest, "JPEG", quality=88)
+    return True
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--per-class", type=int, default=300)
-    ap.add_argument("--other", type=int, default=400)
-    ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--per-class", type=int, default=400)
+    ap.add_argument("--other-per-label", type=int, default=20)
+    ap.add_argument("--raw", type=Path, default=RAW)
     args = ap.parse_args()
     random.seed(0)
+    shutil.rmtree(OUT, ignore_errors=True)
+    counts: dict[str, int] = defaultdict(int)
+    other_counts: dict[str, int] = defaultdict(int)
 
-    # plan: which URLs go to which class
-    counts = defaultdict(int, {p.name: len(list(p.glob("*.jpg"))) for p in OUT.glob("*") if p.is_dir()})
-    jobs: list[tuple[str, Path]] = []
-    planned = defaultdict(int, counts)
+    def take(cls: str | None, src_label: str, data: bytes, name: str) -> None:
+        if cls is None or counts[cls] >= args.per_class:
+            return
+        if cls == OTHER:
+            if other_counts[src_label] >= args.other_per_label:
+                return
+            other_counts[src_label] += 1
+        if save(data, OUT / cls / name):
+            counts[cls] += 1
 
-    for ds, config, split, mapping, _ in SOURCES:
-        names = label_names(ds, config)
-        tag = ds.split("/")[1][:10]
-        for idx, name in enumerate(names):
-            cls = mapping.get(name)
-            need = args.per_class - planned[cls] if cls else 0
-            if need <= 0:
-                continue
-            urls = rows_for_label(ds, config, split, idx, need)
-            print(f"{cls:40s} +{len(urls):4d}  from {ds} [{name}]")
-            for k, u in enumerate(urls):
-                jobs.append((u, OUT / cls / f"{tag}_{idx}_{k}.jpg"))
-            planned[cls] += len(urls)
+    for fname, (names, mapper) in PARQUETS.items():
+        path = args.raw / fname
+        if not path.exists():
+            print("missing", path)
+            continue
+        table = pq.read_table(path)
+        label_col = "label" if "label" in table.column_names else table.column_names[-1]
+        images, labels = table.column("image"), table.column(label_col)
+        order = list(range(table.num_rows))
+        random.shuffle(order)
+        for i in order:
+            lab = labels[i].as_py()
+            src = names[lab] if isinstance(lab, int) else str(lab)
+            take(mapper(src), src, images[i].as_py()["bytes"], f"{path.stem}_{i}.jpg")
+        print(f"read {fname}: {table.num_rows} rows")
 
-    if planned[OTHER] < args.other:
-        for ds, config, split, field in OTHER_SOURCES:
-            names = label_names(ds, config)
-            others = [i for i, n in enumerate(names) if n not in TOMATO and n not in PLANTDOC and not n.startswith("Tomato")]
-            per = max(4, (args.other // 2) // len(others))
-            tag = ds.split("/")[1][:10]
-            for idx in others:
-                urls = rows_for_label(ds, config, split, idx, per)
-                for k, u in enumerate(urls):
-                    jobs.append((u, OUT / OTHER / f"{tag}_{idx}_{k}.jpg"))
-                planned[OTHER] += len(urls)
-            print(f"{OTHER:40s} {planned[OTHER]:4d} planned after {ds}")
-
-    jobs = [(u, d) for u, d in jobs if not d.exists()]
-    print(f"\ndownloading {len(jobs)} images with {args.workers} workers…")
-    done = 0
-    with ThreadPoolExecutor(args.workers) as pool:
-        for ok in pool.map(lambda j: fetch(*j), jobs):
-            done += 1
-            if done % 200 == 0:
-                print(f"  {done}/{len(jobs)}", flush=True)
+    rice = args.raw / "rice.zip"
+    if rice.exists():
+        with zipfile.ZipFile(rice) as z:
+            members = [m for m in z.namelist() if m.lower().endswith((".jpg", ".jpeg", ".png"))]
+            random.shuffle(members)
+            for k, m in enumerate(members):
+                parts = [re.sub(r"[^a-z]", "", p.lower()) for p in Path(m).parts[:-1]]
+                cls = next((RICE_FOLDERS[p] for p in reversed(parts) if p in RICE_FOLDERS), None)
+                take(cls, "", z.read(m), f"rice_{k}.jpg")
+        print(f"read rice.zip: {len(members)} images")
 
     print("\nImages per class:")
-    for p in sorted(OUT.glob("*")):
-        print(f"  {p.name:40s} {len(list(p.glob('*.jpg')))}")
+    for c in sorted(counts):
+        print(f"  {c:40s} {counts[c]}")
+    print(f"total {sum(counts.values())} images in {len(counts)} classes")
 
 
 if __name__ == "__main__":

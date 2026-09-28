@@ -184,7 +184,7 @@ function Play({ lang, cropId, season, onExit }: { lang: Lang; cropId: string; se
       <div className="bars">
         <Meter label={`${UI.growth[lang]} · ${stage.name[lang]}`} value={state.growth} tone="leaf" />
         <Meter label={UI.health[lang]} value={state.health} tone={state.health > 0.6 ? 'leaf' : state.health > 0.3 ? 'sun' : 'danger'} />
-        <Meter label={UI.soil[lang]} value={Math.min(1, state.moisture / 1.1)} tone={state.moisture > 1.05 ? 'danger' : thirst > 0.3 ? 'sun' : 'water'} />
+        <Meter label={UI.soil[lang]} value={Math.min(1, state.moisture / 1.1)} tone={state.moisture > 1.05 && cropId !== 'rice' ? 'danger' : thirst > 0.3 ? 'sun' : 'water'} />
       </div>
 
       <section className="panel">
