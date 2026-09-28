@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { UI, type Lang } from '../data/crops';
+import type { Lang } from '../data/crops';
+import { UI } from '../data/ui';
+import { sfx } from '../lib/sound';
 
 interface Props {
   lang: Lang;
@@ -60,12 +62,12 @@ export function CameraCapture({ lang, onCapture }: Props) {
       <div className={`viewfinder ${live ? 'on' : ''}`}>
         <video ref={videoRef} playsInline muted />
         {live && <div className="leaf-guide" />}
-        {!live && <div className="placeholder">🍃</div>}
+        {!live && <div className="placeholder"><span>🍃</span><small>{UI.scanTip[lang]}</small></div>}
       </div>
       {error && <p className="warn">{UI.noCamera[lang]}</p>}
       <div className="actions">
         {live ? (
-          <button className="primary big" onClick={capture}>📸 {UI.capture[lang]}</button>
+          <button className="primary big" onClick={() => { sfx.pop(); capture(); }}>📸 {UI.capture[lang]}</button>
         ) : (
           <button className="primary big" onClick={openCamera}>📷 {UI.openCamera[lang]}</button>
         )}

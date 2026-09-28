@@ -1,54 +1,107 @@
-import { CONDITION_INDEX, UI, type Lang } from '../data/crops';
-import type { Prediction } from '../lib/classifier';
+import { useEffect } from 'react';
+import { CONDITION_INDEX, CROP_INDEX, OTHER_ID, type Lang } from '../data/crops';
+import { UI } from '../data/ui';
+import { addToDiary } from '../game/sim';
+import type { Diagnosis } from '../lib/classifier';
+import { sfx } from '../lib/sound';
 import { speak, ttsSupported } from '../lib/tts';
+import { Farmer } from './art/Farmer';
 
-const MIN_CONFIDENCE = 0.5;
+const MIN_CONFIDENCE = 0.45;
 
 interface Props {
   lang: Lang;
   image: string;
-  predictions: Prediction[];
+  diagnosis: Diagnosis;
   demo: boolean;
   onReset(): void;
 }
 
-export function ResultCard({ lang, image, predictions, demo, onReset }: Props) {
+export function ResultCard({ lang, image, diagnosis, demo, onReset }: Props) {
+  const { predictions, crops, matches } = diagnosis;
   const top = predictions[0];
+  const topCrop = crops[0];
   const hit = CONDITION_INDEX.get(top.id);
-  const sure = !!hit && top.score >= MIN_CONFIDENCE;
+  const unsupported = topCrop.id === OTHER_ID && topCrop.score >= 0.5;
+  const sure = !!hit && !unsupported && top.score >= MIN_CONFIDENCE;
+  const cropInfo = CROP_INDEX.get(topCrop.id);
 
-  function readAloud() {
-    if (!hit || !sure) return speak(UI.lowConfidence[lang], lang);
+  useEffect(() => {
+    if (!sure) return;
+    if (hit.condition.healthy) sfx.levelUp();
+    else {
+      sfx.sick();
+      if (!demo) addToDiary(hit.condition.id);
+    }
+  }, [sure, hit, demo]);
+
+  function message() {
+    if (unsupported) return UI.notSupported[lang];
+    if (!hit || !sure) return UI.lowConfidence[lang];
     const { crop, condition } = hit;
-    speak(
-      [
-        `${crop.name[lang]}: ${condition.name[lang]}.`,
-        `${UI.symptoms[lang]}: ${condition.symptoms[lang]}`,
-        `${UI.treatment[lang]}: ${condition.treatment[lang]}`,
-      ].join(' '),
-      lang,
-    );
+    return [
+      `${crop.name[lang]}: ${condition.name[lang]}.`,
+      `${UI.symptoms[lang]}: ${condition.symptoms[lang]}`,
+      `${UI.treatment[lang]}: ${condition.treatment[lang]}`,
+    ].join(' ');
   }
 
   return (
     <div className="result">
       {demo && <p className="demo-banner">{UI.demo[lang]}</p>}
-      <img className="shot" src={image} alt="" />
+      <div className="shot-wrap">
+        <img className="shot" src={image} alt="" />
+        {cropInfo && !unsupported && (
+          <span className="crop-tag">
+            {UI.cropFound[lang]}: {cropInfo.emoji} {cropInfo.name[lang]} · {Math.round(topCrop.score * 100)}%
+          </span>
+        )}
+      </div>
+
       {hit && sure ? (
         <div className={`verdict ${hit.condition.healthy ? 'ok' : 'bad'}`}>
-          <span className="crop">{hit.crop.emoji} {hit.crop.name[lang]}</span>
-          <h2>{hit.condition.healthy ? '✅' : '⚠️'} {hit.condition.name[lang]}</h2>
-          <div className="meter" aria-label={UI.confidence[lang]}>
-            <div style={{ width: `${Math.round(top.score * 100)}%` }} />
+          <div className="verdict-head">
+            <Farmer size={48} mood={hit.condition.healthy ? 'cheer' : 'worried'} />
+            <div>
+              <h2>{hit.condition.healthy ? '✅' : '⚠️'} {hit.condition.name[lang]}</h2>
+              <div className="meter leaf" aria-label={UI.confidence[lang]}>
+                <div style={{ width: `${Math.round(top.score * 100)}%` }} />
+              </div>
+              <small>{UI.confidence[lang]}: {Math.round(top.score * 100)}%</small>
+            </div>
           </div>
-          <small>{UI.confidence[lang]}: {Math.round(top.score * 100)}%</small>
           <h3>{UI.symptoms[lang]}</h3>
           <p>{hit.condition.symptoms[lang]}</p>
           <h3>{UI.treatment[lang]}</h3>
           <p>{hit.condition.treatment[lang]}</p>
         </div>
       ) : (
-        <div className="verdict unsure"><p>{UI.lowConfidence[lang]}</p></div>
+        <div className="verdict unsure">
+          <div className="verdict-head">
+            <Farmer size={48} mood="worried" />
+            <p>{unsupported ? UI.notSupported[lang] : UI.lowConfidence[lang]}</p>
+          </div>
+        </div>
+      )}
+
+      {matches.length > 0 && (
+        <section className="matches">
+          <h3>{UI.similar[lang]}</h3>
+          <div className="match-grid">
+            {matches.map((m) => {
+              const info = CONDITION_INDEX.get(m.id);
+              return (
+                <figure key={m.img}>
+                  <img src={m.img} alt="" loading="lazy" />
+                  <figcaption>
+                    {info ? `${info.crop.emoji} ${info.condition.name[lang]}` : '🌿'}
+                    <small>{Math.round(Math.max(0, m.similarity) * 100)}%</small>
+                  </figcaption>
+                </figure>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {predictions.length > 1 && (
@@ -59,7 +112,7 @@ export function ResultCard({ lang, image, predictions, demo, onReset }: Props) {
               const h = CONDITION_INDEX.get(p.id);
               return (
                 <li key={p.id}>
-                  {h ? `${h.crop.name[lang]}: ${h.condition.name[lang]}` : p.id} ({Math.round(p.score * 100)}%)
+                  {h ? `${h.crop.name[lang]}: ${h.condition.name[lang]}` : '🌿'} ({Math.round(p.score * 100)}%)
                 </li>
               );
             })}
@@ -68,9 +121,10 @@ export function ResultCard({ lang, image, predictions, demo, onReset }: Props) {
       )}
 
       <div className="actions">
-        {ttsSupported && <button className="primary" onClick={readAloud}>🔊 {UI.listen[lang]}</button>}
+        {ttsSupported && <button className="primary" onClick={() => speak(message(), lang)}>🔊 {UI.listen[lang]}</button>}
         <button className="secondary" onClick={onReset}>🔄 {UI.retake[lang]}</button>
       </div>
+      <p className="hint small">{UI.disclaimer[lang]}</p>
     </div>
   );
 }

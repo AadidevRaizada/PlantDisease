@@ -1,21 +1,39 @@
-# Training (step 2, not yet implemented)
+# Training the leaf model
 
-Goal: one classifier whose labels are `<crop>___<condition>`, matching the ids in `app/src/data/crops.ts`.
-Export it to `app/public/models/model.onnx` plus `labels.json`.
+Produces `app/public/models/model.onnx`, `labels.json`, `refs.json` and the reference thumbnails in `app/public/refs/`.
+Labels are `<crop>___<condition>` and must match `app/src/data/crops.ts`.
 
-## Datasets
-| Crop | Source |
-|---|---|
-| Tomato | Kaggle `abdallahalidev/plantvillage-dataset` (lab photos) + PlantDoc (field photos, github.com/pratikkayal/PlantDoc-Dataset) |
-| Soybean | PlantVillage (healthy only), so add a Kaggle soybean leaf disease set (rust / yellow mosaic) |
-| Rice | Kaggle rice leaf disease sets (blast, bacterial leaf blight, brown spot) |
-| Cotton | Kaggle cotton disease sets (bacterial blight, curl virus) |
-| Sugarcane | Kaggle sugarcane leaf disease sets (red rot, rust, healthy) |
+```bash
+cd training
+uv venv -p 3.11 .venv
+# CPU build (small download). If you have an NVIDIA GPU and a fast connection use
+# --index-url https://download.pytorch.org/whl/cu124 instead.
+uv pip install -p .venv torch torchvision --index-url https://download.pytorch.org/whl/cpu
+uv pip install -p .venv timm onnx pillow tqdm
 
-Exact Kaggle slugs for the crop-specific sets still need to be picked and checked for licence and quality.
+.venv/Scripts/python prepare.py --per-class 300   # downloads only the images it needs
+.venv/Scripts/python train.py --epochs 10
+.venv/Scripts/python export.py
+```
+(On Mac/Linux use `.venv/bin/python`.)
 
-## Plan
-- Fine-tune `timm` MobileNetV3-Large / EfficientNet-B0 at 224px, with strong augmentation (field photos matter).
-- Hold out PlantDoc-style field images for validation, not just lab images.
-- `torch.onnx.export` with input `[1,3,224,224]`, ImageNet normalisation.
-- Train on Kaggle or Colab's free GPU.
+## Data (all from Hugging Face, no login needed)
+| Crop | Classes | Source |
+|---|---|---|
+| Sugarcane | healthy, red rot, rust, mosaic, yellow leaf | `YaswanthReddy23/Sugarcane_leaf` |
+| Cotton | healthy, bacterial blight, alternaria, fusarium wilt, verticillium wilt | `Project-AgML/cotton_leaf_disease_classification` |
+| Soybean | healthy, rust, bacterial blight, frogeye | `anandvermagmailcom/soybean-leaf-diseases` (+ PlantVillage / PlantDoc healthy) |
+| Rice | healthy, blast, bacterial leaf blight, brown spot, tungro | `Project-AgML/rice_leaf_disease_classification_india`, `Project-AgML/rice_leaf_disease_classification` |
+| Tomato | healthy, early blight, late blight, leaf curl, septoria, bacterial spot, mosaic, leaf mould | PlantDoc field photos (`Project-AgML/plant_doc_classification`) + PlantVillage (`BrandonFors/Plant-Diseases-PlantVillage-Dataset`) |
+| Other | leaves of unsupported plants | PlantVillage + PlantDoc (apple, grape, corn, potato, …) |
+
+`prepare.py` uses the datasets-server `/filter` API to fetch a fixed number of images per label, so a slow
+connection only downloads what is needed. Check each dataset's licence before commercial use.
+
+## Model
+MobileNetV3-Large (ImageNet-pretrained, `timm`) fine-tuned at 224 px with strong augmentation and label smoothing.
+The export has two outputs: `logits` for the diagnosis and an L2-normalised `embedding` used to find the most similar
+reference photos in the app. Per-class validation accuracy is saved to `runs/metrics.json`.
+
+**Caveat:** most source photos are close-ups on plain or field backgrounds. Accuracy on real phone photos will be
+lower than the validation number, so the app shows its confidence and asks for a retake when unsure.

@@ -1,14 +1,20 @@
-import { useEffect, useState } from 'react';
-import { CameraCapture } from './components/CameraCapture';
-import { ResultCard } from './components/ResultCard';
-import { CROPS, UI, type Lang } from './data/crops';
-import { loadClassifier, type Classifier, type Prediction } from './lib/classifier';
-import { stopSpeaking } from './lib/tts';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { Diary } from './components/Diary';
+import { Home } from './components/Home';
+import { Scanner } from './components/Scanner';
+import type { Lang } from './data/crops';
+import { UI } from './data/ui';
+import { Game } from './game/Game';
+import { isMuted, setMuted, sfx } from './lib/sound';
 
-type State =
-  | { step: 'capture' }
-  | { step: 'analysing'; image: string }
-  | { step: 'result'; image: string; predictions: Prediction[] };
+type Route = 'home' | 'scan' | 'grow' | 'diary' | 'art';
+const ROUTES: Route[] = ['home', 'scan', 'grow', 'diary', ...(import.meta.env.DEV ? (['art'] as const) : [])];
+const ArtGallery = import.meta.env.DEV ? lazy(() => import('./components/art/ArtGallery')) : () => null;
+
+function readRoute(): Route {
+  const r = window.location.hash.replace('#/', '') as Route;
+  return ROUTES.includes(r) ? r : 'home';
+}
 
 function savedLang(): Lang {
   try {
@@ -20,11 +26,13 @@ function savedLang(): Lang {
 
 export default function App() {
   const [lang, setLang] = useState<Lang>(savedLang);
-  const [state, setState] = useState<State>({ step: 'capture' });
-  const [classifier, setClassifier] = useState<Classifier | null>(null);
+  const [route, setRoute] = useState<Route>(readRoute);
+  const [muted, setMutedState] = useState(isMuted);
 
   useEffect(() => {
-    loadClassifier().then(setClassifier);
+    const onHash = () => setRoute(readRoute());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
   useEffect(() => {
@@ -36,62 +44,52 @@ export default function App() {
     document.documentElement.lang = lang;
   }, [lang]);
 
-  async function handleCapture(canvas: HTMLCanvasElement) {
-    const image = canvas.toDataURL('image/jpeg', 0.85);
-    setState({ step: 'analysing', image });
-    const clf = classifier ?? (await loadClassifier());
-    const predictions = await clf.predict(canvas);
-    setState({ step: 'result', image, predictions });
-  }
-
-  function reset() {
-    stopSpeaking();
-    setState({ step: 'capture' });
-  }
+  const go = (r: string) => {
+    window.location.hash = r === 'home' ? '' : `/${r}`;
+    window.scrollTo(0, 0);
+  };
 
   return (
-    <div className="app">
-      <header>
-        <div>
-          <h1>🌱 {UI.title[lang]}</h1>
-          <p>{UI.subtitle[lang]}</p>
-        </div>
-        <div className="lang-toggle" role="group">
-          <button className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
-          <button className={lang === 'mr' ? 'active' : ''} onClick={() => setLang('mr')}>मराठी</button>
+    <div className={`app route-${route}`}>
+      <header className="topbar">
+        {route === 'home' ? (
+          <div className="brand">
+            <span className="logo">🌱</span>
+            <div>
+              <h1>{UI.title[lang]}</h1>
+              <p>{UI.subtitle[lang]}</p>
+            </div>
+          </div>
+        ) : (
+          <button className="icon-btn back" onClick={() => { sfx.tap(); go('home'); }} aria-label={UI.back[lang]}>
+            ← <span>{UI.home[lang]}</span>
+          </button>
+        )}
+        <div className="top-actions">
+          <button
+            className="icon-btn"
+            aria-label={UI.sound[lang]}
+            onClick={() => {
+              setMuted(!muted);
+              setMutedState(!muted);
+              if (muted) sfx.tap();
+            }}
+          >
+            {muted ? '🔇' : '🔊'}
+          </button>
+          <div className="lang-toggle" role="group">
+            <button className={lang === 'en' ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
+            <button className={lang === 'mr' ? 'active' : ''} onClick={() => setLang('mr')}>मराठी</button>
+          </div>
         </div>
       </header>
 
       <main>
-        {state.step === 'capture' && (
-          <>
-            <CameraCapture lang={lang} onCapture={handleCapture} />
-            <section className="crops">
-              <h3>{UI.supported[lang]}</h3>
-              <div className="chips">
-                {CROPS.map((c) => (
-                  <span key={c.id} className="chip">{c.emoji} {c.name[lang]}</span>
-                ))}
-              </div>
-            </section>
-          </>
-        )}
-        {state.step === 'analysing' && (
-          <div className="analysing">
-            <img className="shot" src={state.image} alt="" />
-            <div className="spinner" />
-            <p>{UI.analysing[lang]}</p>
-          </div>
-        )}
-        {state.step === 'result' && (
-          <ResultCard
-            lang={lang}
-            image={state.image}
-            predictions={state.predictions}
-            demo={classifier?.demo ?? true}
-            onReset={reset}
-          />
-        )}
+        {route === 'home' && <Home lang={lang} go={go} />}
+        {route === 'scan' && <Scanner lang={lang} />}
+        {route === 'grow' && <Game lang={lang} />}
+        {route === 'diary' && <Diary lang={lang} />}
+        {route === 'art' && <Suspense><ArtGallery /></Suspense>}
       </main>
     </div>
   );
