@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dev-dist/
+*.log
+.env*
+.DS_Store
+# training artefacts
+training/data/
+training/runs/
+*.pt
+*.pth
+*.tsbuildinfo
