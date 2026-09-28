@@ -1,0 +1,33 @@
+{
+  "val_acc": 0.9870480298995972,
+  "per_class": {
+    "cotton___alternaria_leaf_spot": 0.8399999737739563,
+    "cotton___bacterial_blight": 0.96875,
+    "cotton___fusarium_wilt": 0.9800000190734863,
+    "cotton___healthy": 1.0,
+    "cotton___verticillium_wilt": 0.95652174949646,
+    "other___unsupported": 0.9916666746139526,
+    "rice___bacterial_leaf_blight": 1.0,
+    "rice___blast": 0.9833333492279053,
+    "rice___brown_spot": 1.0,
+    "rice___healthy": 1.0,
+    "rice___tungro": 1.0,
+    "soybean___bacterial_blight": 1.0,
+    "soybean___frogeye_leaf_spot": 1.0,
+    "soybean___healthy": 1.0,
+    "soybean___rust": 0.978723406791687,
+    "sugarcane___healthy": 0.9629629850387573,
+    "sugarcane___mosaic": 0.9166666865348816,
+    "sugarcane___red_rot": 0.9814814925193787,
+    "sugarcane___rust": 1.0,
+    "sugarcane___yellow_leaf": 1.0,
+    "tomato___bacterial_spot": 0.9841269850730896,
+    "tomato___early_blight": 1.0,
+    "tomato___healthy": 1.0,
+    "tomato___late_blight": 0.9824561476707458,
+    "tomato___leaf_curl": 0.9833333492279053,
+    "tomato___leaf_mold": 0.9642857313156128,
+    "tomato___mosaic_virus": 1.0,
+    "tomato___septoria_leaf_spot": 1.0
+  }
+}

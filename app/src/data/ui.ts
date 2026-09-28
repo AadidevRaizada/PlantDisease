@@ -31,6 +31,7 @@ export const UI = {
   cropFound: t('Leaf type', 'पानाचा प्रकार'),
   otherMatches: t('Other possibilities', 'इतर शक्यता'),
   similar: t('Closest matches in our database', 'आमच्या संग्रहातील सर्वात जुळणारे फोटो'),
+  otherPlant: t('Other plant', 'इतर वनस्पती'),
   supported: t('Crops I know', 'मला माहित असलेली पिके'),
   scanTip: t('Tip: one leaf, filling the frame, in daylight.', 'सूचना: एकच पान, फ्रेम भरून, दिवसाच्या प्रकाशात.'),
   demo: t(

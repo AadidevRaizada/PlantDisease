@@ -142,7 +142,6 @@ function Play({ lang, cropId, season, onExit }: { lang: Lang; cropId: string; se
   return (
     <div className="play">
       <div className="hud">
-        <button className="icon-btn" onClick={() => { stopAmbient(); onExit(); }} aria-label={UI.back[lang]}>←</button>
         <span className="hud-crop">{crop.emoji} {crop.name[lang]}</span>
         <span className="hud-chip">📅 {UI.day[lang]} {dayOf(state)}/{crop.grow.days}</span>
         <span className="hud-chip">🪙 {state.coins}</span>

@@ -94,7 +94,7 @@ export function ResultCard({ lang, image, diagnosis, demo, onReset }: Props) {
                 <figure key={m.img}>
                   <img src={m.img} alt="" loading="lazy" />
                   <figcaption>
-                    {info ? `${info.crop.emoji} ${info.condition.name[lang]}` : '🌿'}
+                    {info ? `${info.crop.emoji} ${info.condition.name[lang]}` : `🌿 ${UI.otherPlant[lang]}`}
                     <small>{Math.round(Math.max(0, m.similarity) * 100)}%</small>
                   </figcaption>
                 </figure>
@@ -112,7 +112,7 @@ export function ResultCard({ lang, image, diagnosis, demo, onReset }: Props) {
               const h = CONDITION_INDEX.get(p.id);
               return (
                 <li key={p.id}>
-                  {h ? `${h.crop.name[lang]}: ${h.condition.name[lang]}` : '🌿'} ({Math.round(p.score * 100)}%)
+                  {h ? `${h.crop.name[lang]}: ${h.condition.name[lang]}` : `🌿 ${UI.otherPlant[lang]}`} ({Math.round(p.score * 100)}%)
                 </li>
               );
             })}
